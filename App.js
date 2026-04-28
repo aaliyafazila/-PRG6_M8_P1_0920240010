@@ -1,20 +1,70 @@
-import { StatusBar } from 'expo-status-bar';
-import { StyleSheet, Text, View } from 'react-native';
+import React from "react";
+import { NavigationContainer } from "@react-navigation/native";
+import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
+import { createNativeStackNavigator } from "@react-navigation/native-stack";
+import { MaterialIcons } from "@expo/vector-icons";
+import { AuthProvider } from "./context/AuthContext";
 
-export default function App() {
+import HomeScreen from "./screens/HomeScreen";
+import HistoryScreen from "./screens/HistoryScreen";
+import DetailScreen from "./screens/DetailScreen";
+
+const Tab = createBottomTabNavigator();
+const Stack = createNativeStackNavigator();
+
+// Stack untuk History + Detail
+function HistoryStack() {
   return (
-    <View style={styles.container}>
-      <Text>Open up App.js to start working on your app!</Text>
-      <StatusBar style="auto" />
-    </View>
+    <Stack.Navigator>
+      <Stack.Screen
+        name="HistoryList"
+        component={HistoryScreen}
+        options={{ title: "Riwayat Absensi" }}
+      />
+      <Stack.Screen
+        name="Detail"
+        component={DetailScreen}
+        options={{ title: "Detail Informasi" }}
+      />
+    </Stack.Navigator>
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#fff',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-});
+export default function App() {
+  return (
+    <AuthProvider>
+      <NavigationContainer>
+        <Tab.Navigator
+          screenOptions={{
+            tabBarActiveTintColor: "#0056A0",
+            headerShown: false,
+          }}
+        >
+          {/* Home Tab */}
+          <Tab.Screen
+            name="HomeTab"
+            component={HomeScreen}
+            options={{
+              tabBarLabel: "Beranda",
+              tabBarIcon: ({ color }) => (
+                <MaterialIcons name="home" size={24} color={color} />
+              ),
+            }}
+          />
+
+          {/* History Tab */}
+          <Tab.Screen
+            name="HistoryTab"
+            component={HistoryStack}
+            options={{
+              tabBarLabel: "Riwayat",
+              tabBarIcon: ({ color }) => (
+                <MaterialIcons name="history" size={24} color={color} />
+              ),
+            }}
+          />
+        </Tab.Navigator>
+      </NavigationContainer>
+    </AuthProvider>
+  );
+}
