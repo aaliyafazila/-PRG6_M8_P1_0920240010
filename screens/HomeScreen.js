@@ -20,11 +20,8 @@ const HomeScreen = ({ navigation }) => {
   const [currentTime, setCurrentTime] = useState("Memuat jam...");
   const [note, setNote] = useState("");
   const [isPosting, setIsPosting] = useState(false);
-
   const noteInputRef = useRef(null);
-
-  // GANTI DENGAN IP LAPTOP SENDIRI
-  const BASE_URL = "http://10.1.13.239:8080/api/presensi";
+  const BASE_URL = "http://10.29.6.207:8080/api/presensi";
 
   const attendanceStats = useMemo(() => {
     return {

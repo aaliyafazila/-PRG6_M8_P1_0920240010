@@ -4,8 +4,8 @@ export const AuthContext = createContext();
 
 export const AuthProvider = ({ children }) => {
     const [userData] = useState({
-        nim_mhs: "0920240015",
-        nama: "Alyza Septia Anjani"
+        nim_mhs: "0920240010",
+        nama: "Khairunnisa Aliya"
     });
 
     return (

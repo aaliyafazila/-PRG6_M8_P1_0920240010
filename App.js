@@ -8,6 +8,7 @@ import { AuthProvider } from "./context/AuthContext";
 import HomeScreen from "./screens/HomeScreen";
 import HistoryScreen from "./screens/HistoryScreen";
 import DetailScreen from "./screens/DetailScreen";
+import LocationScreen from "./screens/LocationScreen";
 
 const Tab = createBottomTabNavigator();
 const Stack = createNativeStackNavigator();
@@ -60,6 +61,16 @@ export default function App() {
               tabBarLabel: "Riwayat",
               tabBarIcon: ({ color }) => (
                 <MaterialIcons name="history" size={24} color={color} />
+              ),
+            }}
+          />
+          <Tab.Screen
+            name="Location"
+            component={LocationScreen}
+            options={{
+              tabBarLabel: "Lokasi",
+              tabBarIcon: ({ color }) => (
+                <MaterialIcons name="location-on" size={24} color={color} />
               ),
             }}
           />

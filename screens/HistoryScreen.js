@@ -22,9 +22,7 @@ export default function HistoryScreen({ navigation }) {
   // Pagination State
   const [page, setPage] = useState(0);
   const [isLastPage, setIsLastPage] = useState(false);
-
-  // GANTI DENGAN IP LAPTOP MASING-MASING
-  const BASE_URL = "http://10.1.13.239:8080/api/presensi";
+  const BASE_URL = "http://10.29.6.207:8080/api/presensi";
 
   const fetchAttendanceData = async (targetPage = 0) => {
     if (isLoading || (isLastPage && targetPage !== 0)) return;
@@ -56,7 +54,6 @@ export default function HistoryScreen({ navigation }) {
     }
   };
 
-  // Refresh saat screen dibuka
   useFocusEffect(
     useCallback(() => {
       fetchAttendanceData(0);
