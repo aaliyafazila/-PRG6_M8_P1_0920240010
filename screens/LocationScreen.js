@@ -12,7 +12,7 @@ import * as Location from "expo-location";
 import axios from "axios";
 
 // Sesuaikan dengan IP Address Komputer Anda
-const BASE_URL = "http://10.29.6.207:8080/api/presensi";
+const BASE_URL = "http://10.81.253.207:8080/api/presensi";
 
 export default function App() {
   const [loading, setLoading] = useState(true);

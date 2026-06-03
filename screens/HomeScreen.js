@@ -1,76 +1,171 @@
-import React, { useState, useEffect, useMemo, useRef, useContext } from "react";
+import React, { useState, useEffect } from "react";
 import {
   View,
   Text,
-  SafeAreaView,
   StyleSheet,
   TouchableOpacity,
-  ScrollView,
   Alert,
-  TextInput,
+  Button,
   ActivityIndicator,
 } from "react-native";
+import { useNavigation } from "@react-navigation/native";
+import { CameraView, useCameraPermissions } from "expo-camera";
 import { MaterialIcons } from "@expo/vector-icons";
-import { AuthContext } from "../context/AuthContext";
+import * as Location from "expo-location";
 
-const HomeScreen = ({ navigation }) => {
-  const { userData } = useContext(AuthContext);
+export default function HomeScreen() {
+  const navigation = useNavigation();
+  const [permission, requestPermission] = useCameraPermissions();
 
-  const [isCheckedIn, setIsCheckedIn] = useState(false);
-  const [currentTime, setCurrentTime] = useState("Memuat jam...");
-  const [note, setNote] = useState("");
-  const [isPosting, setIsPosting] = useState(false);
-  const noteInputRef = useRef(null);
-  const BASE_URL = "http://10.29.6.207:8080/api/presensi";
+  // QR Scanner
+  const [scannedData, setScannedData] = useState(null);
+  const [isScanning, setIsScanning] = useState(true);
 
-  const attendanceStats = useMemo(() => {
-    return {
-      totalPresent: 12,
-      totalAbsent: 2,
-    };
-  }, []);
+  // Lokasi
+  const [locationStatus, setLocationStatus] = useState("checking");
+  const [distance, setDistance] = useState(0);
+
+  // Titik Kampus
+  const KAMPUS_LAT = -6.346;
+  const KAMPUS_LON = 107.149;
+  const MAKSIMAL_JARAK_METER = 50;
+
+  // Backend
+  const BASE_URL = "http://10.81.253.207:8080/api/presensi";
 
   useEffect(() => {
-    const timer = setInterval(() => {
-      setCurrentTime(
-        new Date().toLocaleTimeString("id-ID", {
-          hour12: false,
-        })
+    if (permission?.granted) {
+      verifyLocation();
+    }
+  }, [permission]);
+
+  // =========================
+  // HITUNG JARAK (HAVERSINE)
+  // =========================
+  const calculateDistance = (lat1, lon1, lat2, lon2) => {
+    const R = 6371e3;
+
+    const p1 = (lat1 * Math.PI) / 180;
+    const p2 = (lat2 * Math.PI) / 180;
+
+    const deltaLat = ((lat2 - lat1) * Math.PI) / 180;
+    const deltaLon = ((lon2 - lon1) * Math.PI) / 180;
+
+    const a =
+      Math.sin(deltaLat / 2) * Math.sin(deltaLat / 2) +
+      Math.cos(p1) *
+        Math.cos(p2) *
+        Math.sin(deltaLon / 2) *
+        Math.sin(deltaLon / 2);
+
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+
+    return R * c;
+  };
+
+  // =========================
+  // CEK LOKASI
+  // =========================
+  const verifyLocation = async () => {
+    try {
+      setLocationStatus("checking");
+
+      const { status } = await Location.requestForegroundPermissionsAsync();
+
+      if (status !== "granted") {
+        Alert.alert(
+          "Akses Ditolak",
+          "Izin lokasi wajib diberikan untuk presensi.",
+        );
+
+        setLocationStatus("error");
+        return;
+      }
+
+      const currentLocation = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.High,
+      });
+
+      const jarakMeter = calculateDistance(
+        currentLocation.coords.latitude,
+        currentLocation.coords.longitude,
+        KAMPUS_LAT,
+        KAMPUS_LON,
       );
-    }, 1000);
 
-    return () => clearInterval(timer);
-  }, []);
+      setDistance(Math.round(jarakMeter));
 
-  const handleCheckIn = async () => {
-    if (isCheckedIn) {
-      return Alert.alert("Perhatian", "Anda sudah Check In.");
+      if (jarakMeter <= MAKSIMAL_JARAK_METER) {
+        setLocationStatus("valid");
+      } else {
+        setLocationStatus("invalid");
+      }
+    } catch (error) {
+      console.log(error);
+
+      Alert.alert("Error Lokasi", "Gagal mendapatkan lokasi GPS.");
+
+      setLocationStatus("error");
     }
+  };
 
-    if (note.trim() === "") {
-      Alert.alert("Peringatan", "Catatan kehadiran wajib diisi!");
-      noteInputRef.current.focus();
-      return;
+  // =========================
+  // QR SCANNER
+  // =========================
+  const handleBarCodeScanned = ({ data }) => {
+    if (!isScanning) return;
+
+    setIsScanning(false);
+
+    try {
+      const qrData = JSON.parse(data);
+
+      setScannedData(qrData);
+
+      Alert.alert(
+        "QR Code Terdeteksi",
+        `Mata Kuliah: ${qrData.kodeMk}
+Pertemuan: ${qrData.pertemuanKe}
+Ruangan: ${qrData.ruangan}
+
+Lanjutkan Presensi?`,
+        [
+          {
+            text: "Batal",
+            style: "cancel",
+            onPress: () => {
+              setScannedData(null);
+              setIsScanning(true);
+            },
+          },
+          {
+            text: "Ya, Check In",
+            onPress: () => handleSubmitPresensi(qrData),
+          },
+        ],
+      );
+    } catch (error) {
+      Alert.alert(
+        "QR Tidak Valid",
+        "Pastikan QR yang dipindai adalah QR Presensi.",
+      );
+
+      setIsScanning(true);
     }
+  };
 
-    setIsPosting(true);
-
-    const now = new Date();
-
+  // =========================
+  // SUBMIT PRESENSI
+  // =========================
+  const handleSubmitPresensi = async (qrData) => {
     const payload = {
-      kodeMk: "TRPL205",
-      course: "Mobile Programming",
+      kodeMk: qrData.kodeMk,
+      nimMhs: "0325260031",
+      pertemuanKe: qrData.pertemuanKe,
+      date: new Date().toISOString().split("T")[0],
+      jamPresensi: new Date().toLocaleTimeString("en-GB"),
       status: "Present",
-      nimMhs: userData.nim_mhs,
-      pertemuanKe: 5,
-      date: now.toISOString().split("T")[0],
-      jamPresensi: now.toLocaleTimeString("id-ID", {
-        hour12: false,
-      }),
-      kodeQr: "AUTH-TRPL205-W5-XYZ987",
-      ruangan: "Lab Komputer 3",
-      dosenPengampu: "Tim Dosen TRPL",
-      note: note,
+      ruangan: qrData.ruangan,
     };
 
     try {
@@ -86,280 +181,312 @@ const HomeScreen = ({ navigation }) => {
       const result = await response.json();
 
       if (response.ok) {
-        setIsCheckedIn(true);
-
-        Alert.alert("Berhasil!", "Presensi masuk ke Database Java Spring.", [
+        Alert.alert("Berhasil!", "Presensi berhasil dicatat.", [
           {
             text: "Lihat Riwayat",
             onPress: () => navigation.navigate("HistoryTab"),
           },
-          {
-            text: "OK",
-          },
         ]);
       } else {
-        Alert.alert(
-          "Gagal",
-          result.message || "Terjadi kesalahan di server."
-        );
+        Alert.alert("Gagal", result.message || "Terjadi kesalahan di server.");
       }
     } catch (error) {
-      Alert.alert(
-        "Error Jaringan",
-        "Pastikan IP Laptop benar dan Spring Boot berjalan."
-      );
-      console.error(error);
+      console.log(error);
+
+      Alert.alert("Error Jaringan", "Backend tidak dapat diakses.");
     } finally {
-      setIsPosting(false);
+      setScannedData(null);
+      setIsScanning(true);
     }
   };
 
+  // =========================
+  // LOADING CAMERA PERMISSION
+  // =========================
+  if (!permission) {
+    return (
+      <View style={styles.centerContainer}>
+        <ActivityIndicator size="large" />
+      </View>
+    );
+  }
+
+  // =========================
+  // CAMERA DENIED
+  // =========================
+  if (!permission.granted) {
+    return (
+      <View style={styles.centerContainer}>
+        <Text style={styles.infoText}>
+          Aplikasi membutuhkan akses kamera untuk scan QR.
+        </Text>
+
+        <TouchableOpacity
+          style={styles.buttonRequest}
+          onPress={requestPermission}
+        >
+          <Text style={styles.buttonText}>Aktifkan Kamera</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
+
+  // =========================
+  // GPS CHECKING
+  // =========================
+  if (locationStatus === "checking") {
+    return (
+      <View style={styles.centerContainer}>
+        <ActivityIndicator size="large" color="#0056b3" />
+
+        <Text style={styles.loadingText}>Memverifikasi Lokasi Anda...</Text>
+
+        <Text style={{ color: "gray", marginTop: 10 }}>
+          Pastikan GPS aktif dan berada di area kampus.
+        </Text>
+      </View>
+    );
+  }
+
+  // =========================
+  // GPS ERROR
+  // =========================
+  if (locationStatus === "error") {
+    return (
+      <View style={styles.centerContainer}>
+        <MaterialIcons name="gps-off" size={80} color="#dc3545" />
+
+        <Text style={styles.errorTitle}>GPS Tidak Tersedia</Text>
+
+        <Text style={styles.errorSubtitle}>
+          Tidak dapat mendapatkan lokasi Anda.
+        </Text>
+
+        <TouchableOpacity style={styles.buttonRequest} onPress={verifyLocation}>
+          <Text style={styles.buttonText}>Coba Lagi</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
+
+  // =========================
+  // DI LUAR RADIUS
+  // =========================
+  if (locationStatus === "invalid") {
+    return (
+      <View style={styles.centerContainer}>
+        <MaterialIcons name="block" size={80} color="#dc3545" />
+
+        <Text style={styles.errorTitle}>Akses Ditolak</Text>
+
+        <Text style={styles.errorSubtitle}>
+          Anda berada {distance} meter dari titik kampus.
+          {"\n"}
+          Maksimal jarak yang diperbolehkan adalah {MAKSIMAL_JARAK_METER} meter.
+        </Text>
+
+        <TouchableOpacity style={styles.buttonRequest} onPress={verifyLocation}>
+          <Text style={styles.buttonText}>Cek Ulang Lokasi</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
+
+  // =========================
+  // SCANNER
+  // =========================
   return (
-    <SafeAreaView style={styles.container}>
-      <ScrollView contentContainerStyle={styles.content}>
-        {/* Header */}
-        <View style={styles.headerRow}>
-          <Text style={styles.title}>Attendance App</Text>
-          <Text style={styles.clockText}>{currentTime}</Text>
+    <View style={styles.container}>
+      <CameraView
+        style={StyleSheet.absoluteFillObject}
+        facing="back"
+        onBarcodeScanned={isScanning ? handleBarCodeScanned : undefined}
+        barcodeScannerSettings={{
+          barCodeTypes: ["qr"],
+        }}
+      />
+
+      <View style={[styles.overlay, StyleSheet.absoluteFillObject]}>
+        <View style={styles.unfocusedContainer}>
+          <View style={styles.validLocationBadge}>
+            <MaterialIcons
+              name="check-circle"
+              size={18}
+              color="white"
+              style={{ marginRight: 5 }}
+            />
+
+            <Text style={styles.validLocationText}>
+              Lokasi Valid ({distance}m)
+            </Text>
+          </View>
         </View>
 
-        {/* Student Card */}
-        <View style={styles.card}>
-          <View style={styles.icon}>
-            <MaterialIcons name="person" size={40} color="#555" />
-          </View>
-
-          <View>
-            <Text style={styles.name}>{userData.nama}</Text>
-            <Text>NIM : {userData.nim_mhs}</Text>
-            <Text>Class : Informatika-2B</Text>
-          </View>
+        <View style={styles.focusedContainer}>
+          <View style={styles.borderCornerTopLeft} />
+          <View style={styles.borderCornerTopRight} />
+          <View style={styles.borderCornerBottomLeft} />
+          <View style={styles.borderCornerBottomRight} />
         </View>
 
-        {/* Today's Class */}
-        <View style={styles.classCard}>
-          <Text style={styles.subtitle}>Today's Class</Text>
-          <Text>Mobile Programming (TRPL205)</Text>
-          <Text>08:00 - 10:00</Text>
-          <Text>Lab 3</Text>
+        <View style={styles.unfocusedContainer}>
+          <Text style={styles.scanText}>Arahkan Kamera ke QR Code Dosen</Text>
 
-          {!isCheckedIn && (
-            <TextInput
-              ref={noteInputRef}
-              style={styles.inputCatatan}
-              placeholder="Tulis catatan (cth: Hadir lab)"
-              value={note}
-              onChangeText={setNote}
+          {!isScanning && (
+            <Button
+              title="Scan Lagi"
+              onPress={() => setIsScanning(true)}
+              color="#ffc107"
             />
           )}
-
-          {isPosting ? (
-            <ActivityIndicator
-              size="large"
-              color="#007AFF"
-              style={{ marginTop: 15 }}
-            />
-          ) : (
-            <TouchableOpacity
-              style={[
-                styles.button,
-                isCheckedIn
-                  ? styles.buttonDisabled
-                  : styles.buttonActive,
-              ]}
-              onPress={handleCheckIn}
-              disabled={isCheckedIn}
-            >
-              <Text style={styles.buttonText}>
-                {isCheckedIn
-                  ? "CHECKED IN"
-                  : "CHECK IN SEKARANG"}
-              </Text>
-            </TouchableOpacity>
-          )}
         </View>
-
-        {/* Stats Card */}
-        <View style={styles.statsCard}>
-          <View style={styles.statBox}>
-            <Text style={styles.statNumber}>
-              {attendanceStats.totalPresent}
-            </Text>
-            <Text style={styles.statLabel}>Total Present</Text>
-          </View>
-
-          <View style={styles.statBox}>
-            <Text
-              style={[
-                styles.statNumber,
-                { color: "red" },
-              ]}
-            >
-              {attendanceStats.totalAbsent}
-            </Text>
-            <Text style={styles.statLabel}>Total Absent</Text>
-          </View>
-        </View>
-      </ScrollView>
-    </SafeAreaView>
+      </View>
+    </View>
   );
-};
-
-export default HomeScreen;
+}
 
 const styles = StyleSheet.create({
-    container: {
-        flex: 1,
-        padding: 20,
-        backgroundColor: "#F5F5F5"
-    },
+  container: {
+    flex: 1,
+    backgroundColor: "black",
+  },
 
-    title: {
-        fontSize: 24,
-        fontWeight: "bold"
-    },
+  centerContainer: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    backgroundColor: "#f4f6f9",
+    padding: 20,
+  },
 
-    card: {
-        flexDirection: "row",
-        backgroundColor: "white",
-        padding: 15,
-        borderRadius: 10,
-        marginBottom: 20
-    },
+  loadingText: {
+    marginTop: 20,
+    fontSize: 18,
+    fontWeight: "bold",
+    color: "#333",
+  },
 
-    icon: {
-        width: 60,
-        height: 60,
-        borderRadius: 30,
-        backgroundColor: "#eee",
-        alignItems: "center",
-        justifyContent: "center",
-        marginRight: 15
-    },
+  infoText: {
+    color: "#333",
+    textAlign: "center",
+    margin: 30,
+    fontSize: 16,
+  },
 
-    iconStatus: {
-        flexDirection: "row",
-        alignItems: "center"
-    },
+  buttonRequest: {
+    backgroundColor: "#0056b3",
+    padding: 15,
+    borderRadius: 10,
+    width: "80%",
+    alignItems: "center",
+    marginTop: 20,
+  },
 
-    name: {
-        fontSize: 18,
-        fontWeight: "bold"
-    },
+  buttonText: {
+    color: "white",
+    fontWeight: "bold",
+    fontSize: 16,
+  },
 
-    classCard: {
-        backgroundColor: "white",
-        padding: 15,
-        borderRadius: 10,
-        marginBottom: 20
-    },
+  errorTitle: {
+    fontSize: 24,
+    fontWeight: "bold",
+    color: "#dc3545",
+    marginVertical: 10,
+  },
 
-    subtitle: {
-        fontSize: 18,
-        fontWeight: "bold",
-        marginBottom: 10
-    },
+  errorSubtitle: {
+    fontSize: 16,
+    textAlign: "center",
+    color: "#666",
+    lineHeight: 24,
+  },
 
-    button: {
-        marginTop: 10,
-        backgroundColor: "#007AFF",
-        padding: 10,
-        borderRadius: 8,
-        alignItems: "center"
-    },
+  overlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.6)",
+  },
 
-    buttonText: {
-        color: "white"
-    },
+  unfocusedContainer: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+  },
 
-    content: {
-        padding: 20,
-        paddingBottom: 40
-    },
+  focusedContainer: {
+    width: 250,
+    height: 250,
+    alignSelf: "center",
+    backgroundColor: "transparent",
+    position: "relative",
+  },
 
-    item: {
-        flexDirection: "row",
-        justifyContent: "space-between",
-        backgroundColor: "white",
-        alignItems: "center",
-        padding: 12,
-        borderRadius: 8,
-        marginBottom: 8
-    },
+  scanText: {
+    color: "white",
+    fontSize: 16,
+    marginTop: 20,
+    fontWeight: "bold",
+    backgroundColor: "rgba(0,0,0,0.7)",
+    padding: 10,
+    borderRadius: 5,
+  },
 
-    course: {
-        fontSize: 16
-    },
+  validLocationBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "rgba(40,167,69,0.9)",
+    paddingHorizontal: 15,
+    paddingVertical: 8,
+    borderRadius: 20,
+    marginBottom: 30,
+  },
 
-    date: {
-        fontSize: 12,
-        color: "gray"
-    },
+  validLocationText: {
+    color: "white",
+    fontWeight: "bold",
+  },
 
-    present: {
-        color: "green",
-        fontWeight: "bold",
-        marginLeft: 2
-    },
+  borderCornerTopLeft: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    width: 40,
+    height: 40,
+    borderTopWidth: 5,
+    borderLeftWidth: 5,
+    borderColor: "#007bff",
+  },
 
-    absent: {
-        color: "red",
-        fontWeight: "bold",
-        marginLeft: 2
-    },
+  borderCornerTopRight: {
+    position: "absolute",
+    top: 0,
+    right: 0,
+    width: 40,
+    height: 40,
+    borderTopWidth: 5,
+    borderRightWidth: 5,
+    borderColor: "#007bff",
+  },
 
-    headerRow: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        marginBottom: 10,
-    },
+  borderCornerBottomLeft: {
+    position: "absolute",
+    bottom: 0,
+    left: 0,
+    width: 40,
+    height: 40,
+    borderBottomWidth: 5,
+    borderLeftWidth: 5,
+    borderColor: "#007bff",
+  },
 
-    clockText: {
-        fontSize: 16,
-        fontWeight: 'bold',
-        color: '#007AFF',
-        fontVariant: ['tabular-nums'],
-    },
-
-    buttonActive: {
-        backgroundColor: "#007AFF",
-    },
-
-    buttonDisabled: {
-        backgroundColor: "#A0C4FF",
-    },
-
-    inputCatatan: {
-        borderWidth: 1,
-        borderColor: '#ccc',
-        borderRadius: 8,
-        padding: 10,
-        marginTop:15,
-        backgroundColor: '#fafafa',
-    },
-
-    statsCard: {
-        flexDirection: 'row',
-        justifyContent: 'space-around',
-        backgroundColor: "white",
-        padding: 15,
-        borderRadius: 10,
-        marginBottom: 20,
-    },
-
-    statBox: {
-        alignItems: 'center',
-    },
-
-    statNumber: {
-        fontSize: 24,
-        fontWeight: 'bold',
-        color: 'green',
-    },
-
-    statLabel: {
-        fontSize: 14,
-        color: 'gray',
-    },
+  borderCornerBottomRight: {
+    position: "absolute",
+    bottom: 0,
+    right: 0,
+    width: 40,
+    height: 40,
+    borderBottomWidth: 5,
+    borderRightWidth: 5,
+    borderColor: "#007bff",
+  },
 });
